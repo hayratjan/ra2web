@@ -106,3 +106,33 @@ class LadderApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
+
+
+class FrontendHostingTests(TestCase):
+    """同端口前端静态托管测试。"""
+
+    def test_index_served_at_root(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        content = b"".join(response.streaming_content)
+        self.assertIn(b"ra2web-root", content)
+
+    def test_static_asset_served(self):
+        response = self.client.get("/servers.ini")
+        self.assertEqual(response.status_code, 200)
+
+    def test_backend_sources_denied(self):
+        """后端源码与数据库不允许通过静态托管泄漏。"""
+        for path in (
+            "/backend/ra2web_backend/settings.py",
+            "/backend/db.sqlite3",
+            "/.git/config",
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 404, path)
+
+    def test_api_routes_take_priority(self):
+        """API 路由优先于静态托管。"""
+        response = self.client.get(f"/ladder/{SKU}/1v1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")

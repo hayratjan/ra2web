@@ -69,6 +69,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 请求体大小上限(战绩包不足 64KB,留余量;防内存放大攻击)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
+# 前端静态站点根目录(同端口托管 index.html/dist/res 等,
+# 实现"一个端口跑完整个游戏";置空则关闭静态托管)
+FRONTEND_ROOT = os.environ.get("RA2WEB_FRONTEND_ROOT", str(BASE_DIR.parent))
+
 # 生产环境务必通过环境变量覆盖:
 #   RA2WEB_SECRET_KEY  随机密钥
 #   RA2WEB_DEBUG=0     关闭调试
