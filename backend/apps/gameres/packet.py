@@ -26,6 +26,11 @@ TYPE_TIME = 5
 TYPE_INT = 6
 TYPE_STRING = 7
 
+# 单局玩家数上限(RA2 最多 8 人,留余量),防止恶意 PLRS 导致循环放大
+MAX_PACKET_PLAYERS = 16
+# 战绩包字段数上限,防止畸形包撑爆内存
+MAX_PACKET_FIELDS = 512
+
 
 class GameResPacketError(ValueError):
     """战绩包格式错误。"""
@@ -42,6 +47,15 @@ class GameResPacket:
     # ------------------------------------------------------------------
     @classmethod
     def from_binary(cls, data: bytes) -> "GameResPacket":
+        # 所有底层解析错误(越界/截断)统一转为 GameResPacketError,
+        # 避免畸形数据把 struct.error/IndexError 泄漏到视图层变成 500
+        try:
+            return cls._from_binary_unsafe(data)
+        except (struct.error, IndexError, OverflowError) as exc:
+            raise GameResPacketError(f"Malformed packet: {exc}") from exc
+
+    @classmethod
+    def _from_binary_unsafe(cls, data: bytes) -> "GameResPacket":
         if len(data) < 4:
             raise GameResPacketError("Packet too short")
         (total_len,) = struct.unpack_from(">H", data, 0)
@@ -57,6 +71,8 @@ class GameResPacket:
         end = 4 + body_len
         # 与前端 fromBinary 循环条件一致:position <= bodyLen - 4
         while pos <= end - 4:
+            if len(fields) >= MAX_PACKET_FIELDS:
+                raise GameResPacketError("Too many fields")
             name = data[pos : pos + 4].decode("ascii", "replace").rstrip("\x00")
             pos += 4
             (ftype,) = struct.unpack_from(">H", data, pos)
@@ -134,9 +150,10 @@ class GameResPacket:
         return self.fields.get(f"{name}{index}")
 
     def players(self) -> list:
-        """提取所有玩家的关键信息。"""
+        """提取所有玩家的关键信息(数量强制截断,防循环放大攻击)。"""
         result = []
-        for i in range(self.get_int("PLRS")):
+        count = min(self.get_int("PLRS"), MAX_PACKET_PLAYERS)
+        for i in range(count):
             name_field = self.player_field("NAM", i)
             if not name_field:
                 continue

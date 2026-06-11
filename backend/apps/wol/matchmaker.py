@@ -238,34 +238,41 @@ class Matchmaker:
 
     async def _cleanup_stale(self, game_id: str, delay_seconds: int):
         """回收始终未开赛且无人连接的预创建实例。"""
-        await asyncio.sleep(delay_seconds)
-        async with GSERV_STATE.lock:
-            instance = GSERV_STATE.get(game_id)
-            if instance and not instance.started and not instance.players:
-                instance.closed = True
-                GSERV_STATE.instances.pop(game_id, None)
+        try:
+            await asyncio.sleep(delay_seconds)
+            async with GSERV_STATE.lock:
+                instance = GSERV_STATE.get(game_id)
+                if instance and not instance.started and not instance.players:
+                    instance.closed = True
+                    GSERV_STATE.instances.pop(game_id, None)
+        except Exception:
+            # 后台任务异常必须显式记录,否则会被事件循环静默吞掉
+            logger.exception("清理快速匹配实例 %s 失败", game_id)
 
     async def _send_start_after(self, countdown: int, a, b, game_id: str, timestamp: str):
         """倒计时结束后向双方下发 STARTG;若有人掉线则让对方重新排队。"""
-        await asyncio.sleep(countdown)
-        cfg = settings.RA2WEB
-        sessions = [a.session, b.session]
-        alive = [s for s in sessions if s.consumer.is_open()]
-        if len(alive) < 2:
-            async with GSERV_STATE.lock:
-                GSERV_STATE.instances.pop(game_id, None)
-            for session in alive:
-                await session.consumer.send_page(
-                    cfg["MATCH_BOT_NAME"], qm_codes.RPL_REQUEUE
-                )
-                entry = a if session is a.session else b
-                entry.enqueued_at = time.monotonic()
-                queue = self.queue_for("1v1", entry.ranked)
-                queue.insert(0, entry)
-                await self.try_match("1v1", entry.ranked)
-            return
-        for session in sessions:
-            await session.consumer.send_startg(game_id, timestamp)
+        try:
+            await asyncio.sleep(countdown)
+            cfg = settings.RA2WEB
+            sessions = [a.session, b.session]
+            alive = [s for s in sessions if s.consumer.is_open()]
+            if len(alive) < 2:
+                async with GSERV_STATE.lock:
+                    GSERV_STATE.instances.pop(game_id, None)
+                for session in alive:
+                    await session.consumer.send_page(
+                        cfg["MATCH_BOT_NAME"], qm_codes.RPL_REQUEUE
+                    )
+                    entry = a if session is a.session else b
+                    entry.enqueued_at = time.monotonic()
+                    queue = self.queue_for("1v1", entry.ranked)
+                    queue.insert(0, entry)
+                    await self.try_match("1v1", entry.ranked)
+                return
+            for session in sessions:
+                await session.consumer.send_startg(game_id, timestamp)
+        except Exception:
+            logger.exception("快速匹配开局任务异常(对局 %s)", game_id)
 
 
 MATCHMAKER = Matchmaker()

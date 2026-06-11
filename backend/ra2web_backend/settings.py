@@ -66,6 +66,14 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# 请求体大小上限(战绩包不足 64KB,留余量;防内存放大攻击)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+
+# 生产环境务必通过环境变量覆盖:
+#   RA2WEB_SECRET_KEY  随机密钥
+#   RA2WEB_DEBUG=0     关闭调试
+#   RA2WEB_ALLOWED_HOSTS=你的域名
+
 # ---------------------------------------------------------------------------
 # ra2web 自定义配置(与前端 network/WolConfig 等模块保持一致)
 # ---------------------------------------------------------------------------

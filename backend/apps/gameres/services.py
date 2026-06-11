@@ -25,6 +25,8 @@ LOSS_STATES = {
 def store_report(packet: GameResPacket, reporter: Account) -> GameReport:
     """保存一份战绩上报(同一对局同一上报者只保留首份)。"""
     game_id = packet.get_str("GMID")
+    if not game_id or len(game_id) > 64:
+        raise ValueError("Invalid GMID")
     report = GameReport(
         game_id=game_id,
         reporter=reporter,

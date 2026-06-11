@@ -114,12 +114,29 @@ def rung_search(ladder_type: str, season: str, start: int, count: int) -> list:
     return [_entry_to_profile(e, total).to_json() for e in rows]
 
 
+def _rank_of(entry, ladder_type: str, season: int) -> int:
+    """
+    计算单个条目的名次:统计排在它前面的条目数 + 1。
+
+    排序规则与 _ranked_queryset 一致(points 降序、wins 降序、id 升序),
+    走 (ladder_type, season, points) 索引,避免大表全量扫描。
+    """
+    base = LadderEntry.objects.filter(ladder_type=ladder_type, season=season)
+    ahead = base.filter(points__gt=entry.points).count()
+    ahead += base.filter(points=entry.points, wins__gt=entry.wins).count()
+    ahead += base.filter(
+        points=entry.points, wins=entry.wins, id__lt=entry.id
+    ).count()
+    return ahead + 1
+
+
 def list_search(ladder_type: str, season: str, players: Iterable[str]) -> list:
     """
     按名字批量查询(前端 listSearch),最多 MAX_LIST_SEARCH_COUNT 个。
 
     上榜玩家返回名次档案;未上榜但账号存在的玩家返回
     rank=0 且无 rankType 的档案(前端显示 TXT_UNRANKED)。
+    大厅会高频调用本接口,名次用计数查询单独计算,避免全表扫描。
     """
     names = [str(p) for p in players][:50]
     lowered = [n.lower() for n in names if n]
@@ -130,14 +147,18 @@ def list_search(ladder_type: str, season: str, players: Iterable[str]) -> list:
     if season_no is None or season_no < 1:
         return []
 
-    qs = _ranked_queryset(ladder_type, season_no)
-    total = qs.count()
+    total = LadderEntry.objects.filter(
+        ladder_type=ladder_type, season=season_no
+    ).count()
+    entries = LadderEntry.objects.filter(
+        ladder_type=ladder_type,
+        season=season_no,
+        account__name_lower__in=lowered,
+    ).select_related("account")
     found = {}
-    # Window 注解无法直接按名字过滤(过滤会改变名次),先全量再筛选
-    for entry in qs:
-        lname = entry.account.name_lower
-        if lname in lowered:
-            found[lname] = _entry_to_profile(entry, total)
+    for entry in entries:
+        entry.rank = _rank_of(entry, ladder_type, season_no)
+        found[entry.account.name_lower] = _entry_to_profile(entry, total)
 
     results = []
     for name in names:

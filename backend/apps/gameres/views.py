@@ -23,6 +23,9 @@ from .packet import GameResPacket, GameResPacketError
 
 logger = logging.getLogger(__name__)
 
+# 战绩包(Base64 后)大小上限:正常包不足 64KB,留足余量
+MAX_BODY_BYTES = 256 * 1024
+
 
 @csrf_exempt
 @require_POST
@@ -30,6 +33,11 @@ def submit(request, sku: int):
     """接收战绩包,校验凭据后入库并按需结算排位积分。"""
     if sku != settings.RA2WEB["CLIENT_SKU"]:
         return HttpResponseNotFound("Unknown SKU")
+
+    # 大小限制前置,避免恶意大包进入解码流程
+    content_length = int(request.headers.get("Content-Length") or 0)
+    if content_length > MAX_BODY_BYTES or len(request.body) > MAX_BODY_BYTES:
+        return HttpResponseBadRequest("Packet too large")
 
     auth_header = request.headers.get("Authorization", "")
     try:
@@ -54,5 +62,9 @@ def submit(request, sku: int):
     if snam.lower() != auth.account.name_lower:
         return HttpResponseBadRequest("Reporter mismatch")
 
-    services.store_report(packet, auth.account)
+    try:
+        services.store_report(packet, auth.account)
+    except ValueError as exc:
+        logger.warning("战绩包字段非法(%s): %s", nick, exc)
+        return HttpResponseBadRequest("Bad packet")
     return HttpResponse(status=200)

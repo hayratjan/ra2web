@@ -141,6 +141,30 @@ wolKeepAliveInGame=yes
 - **就近匹配**:快速匹配按 MMR 差值就近配对,等待越久匹配范围逐步放宽;
 - **消息限流**:单连接令牌桶限流,防止刷屏拖垮大厅。
 
+## 安全防护
+
+代码内置以下防护(均有回归测试覆盖,见 `tests/test_security.py`):
+
+- **防爆破**:WOL/gserv 登录连续失败达上限即断开(gserv 回复 104);
+- **防协议注入**:房间 topic 剔除空格与控制字符后才会嵌入 326 列表回复;
+- **防内存攻击**:
+  - 战绩包请求体限 256KB、字段数限 512、PLRS 玩家数强制截断;
+  - gserv 回合号仅接受 [已广播+1, +128] 窗口,动作负载限 64KB;
+  - 全服对局实例总量、单账号实例数、单会话频道数均有上限;
+  - 地图传输限 2MB,状态哈希记录滚动裁剪;
+- **身份校验**:战绩上报者必须与包内 SNAM 一致,防伪造他人战绩;
+- **限流**:WebSocket 单连接令牌桶限流,HTTP 请求体大小受
+  `DATA_UPLOAD_MAX_MEMORY_SIZE` 约束;
+- **后台任务**:watchdog/匹配器等异步任务全部带异常记录,不会静默失败。
+
+生产环境部署清单:
+
+```bash
+export RA2WEB_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+export RA2WEB_DEBUG=0
+export RA2WEB_ALLOWED_HOSTS=你的域名
+```
+
 ## 部署形态
 
 - 单进程 `daphne` 即可同时承载 4 类服务(大厅状态为进程内存);

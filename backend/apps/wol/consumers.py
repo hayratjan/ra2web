@@ -47,6 +47,10 @@ from .state import STATE, WolChannel, WolSession
 logger = logging.getLogger("wol")
 
 LOGIN_QUEUE_POLL = 5             # 登录排队轮询周期(秒)
+MAX_LOGIN_ATTEMPTS = 5           # 单连接登录失败上限(防爆破)
+MAX_CHANNELS_PER_SESSION = 8     # 单会话可同时加入的频道数上限
+MAX_OWNED_GAME_CHANNELS = 2      # 单会话可同时拥有的游戏房间上限
+MAX_TOPIC_LEN = 512              # 房间 topic 长度上限
 
 
 class WolConsumer(BaseIrcConsumer):
@@ -64,6 +68,9 @@ class WolConsumer(BaseIrcConsumer):
         self._pending_nick = ""
         # 客户端是否已主动上报语言(登录前 setlocale)
         self._locale_reported = False
+        # 防爆破/防并发登录状态
+        self._login_attempts = 0
+        self._logging_in = False
 
     async def on_disconnected(self, close_code):
         session = self.session
@@ -200,6 +207,16 @@ class WolConsumer(BaseIrcConsumer):
 
     async def cmd_user(self, line, parts):
         """user 行触发实际登录(凭据来自之前的 pass/nick 行)。"""
+        # 防止同连接并发触发多个登录流程(排队循环叠加)
+        if self._logging_in:
+            return
+        self._logging_in = True
+        try:
+            await self._do_login()
+        finally:
+            self._logging_in = False
+
+    async def _do_login(self):
         nick = self._pending_nick
         try:
             password = base64.b64decode(self._pending_pass).decode("utf-8")
@@ -229,10 +246,20 @@ class WolConsumer(BaseIrcConsumer):
                 await self.send_code(
                     codes.RPL_BAD_LOGIN, f"{nick} {nick} :Bad username or password"
                 )
+            # 防爆破:多次失败直接断开连接
+            self._login_attempts += 1
+            if self._login_attempts >= MAX_LOGIN_ATTEMPTS:
+                await self.close()
             return
 
         account = auth.account
         async with STATE.lock:
+            # 同连接重复登录:先清理旧昵称映射,避免残留脏引用
+            if (
+                self.session.is_logged_in()
+                and STATE.users.get(self.session.nick_lower) is self.session
+            ):
+                del STATE.users[self.session.nick_lower]
             # 同名顶号:断开旧连接,便于掉线后立即重连
             old = STATE.users.get(account.name_lower)
             if old is not None and old.consumer is not self:
@@ -356,6 +383,11 @@ class WolConsumer(BaseIrcConsumer):
         key = parts[2] if len(parts) > 2 else ""
         name = unescape_channel_name(escaped)
 
+        if len(self.session.channels) >= MAX_CHANNELS_PER_SESSION:
+            await self.send_code(
+                codes.ERR_CHANNELISFULL, f"{nick} {escaped} :Too many channels"
+            )
+            return
         async with STATE.lock:
             channel = STATE.find_channel(name)
             if channel is None:
@@ -416,6 +448,20 @@ class WolConsumer(BaseIrcConsumer):
         except ValueError:
             await self.send_code(codes.ERR_BAD_PARAMS, f"{nick} :Bad params")
             return
+        # 限制单会话拥有的房间数,防止恶意刷房占用内存
+        owned = sum(
+            1
+            for chan in STATE.channels.values()
+            if chan.is_game and chan.owner.lower() == self.session.nick_lower
+        )
+        if (
+            owned >= MAX_OWNED_GAME_CHANNELS
+            or len(self.session.channels) >= MAX_CHANNELS_PER_SESSION
+        ):
+            await self.send_code(
+                codes.ERR_CHANNELISFULL, f"{nick} {escaped} :Too many channels"
+            )
+            return
         async with STATE.lock:
             if STATE.find_channel(name) is not None:
                 # 同名房间已存在:旧房主已断线则回收重建
@@ -449,6 +495,11 @@ class WolConsumer(BaseIrcConsumer):
         """加入游戏房间:joingame <chan> <observer> [pass]"""
         nick = self.session.nick
         key = args[1] if len(args) > 1 else ""
+        if len(self.session.channels) >= MAX_CHANNELS_PER_SESSION:
+            await self.send_code(
+                codes.ERR_CHANNELISFULL, f"{nick} {escaped} :Too many channels"
+            )
+            return
         async with STATE.lock:
             channel = STATE.find_channel(name)
             if channel is None or not channel.is_game:
@@ -581,7 +632,10 @@ class WolConsumer(BaseIrcConsumer):
         if sep < 0:
             return
         name = unescape_channel_name(parts[1])
-        text = line[sep + 2 :]
+        # 防协议注入:topic 会嵌入 326 列表回复(以空格分隔参数),
+        # 必须剔除空格与控制字符;前端序列化的 topic 本身不含空格
+        text = line[sep + 2 :][:MAX_TOPIC_LEN]
+        text = "".join(ch for ch in text if ch not in " \r\n\t\x00")
         async with STATE.lock:
             channel = STATE.find_channel(name)
             if channel and self.session.nick_lower in channel.members:

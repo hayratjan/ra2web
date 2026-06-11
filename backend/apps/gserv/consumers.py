@@ -50,6 +50,14 @@ RATE_UPDATE_INTERVAL = 5         # 速率自适应周期(秒)
 MIN_RATE_MILLIS = 40             # 网络回合时长下限
 MAX_RATE_MILLIS = 400            # 网络回合时长上限
 MAX_INSTANCES_PER_USER = 4       # 单账号同时创建实例上限
+MAX_TOTAL_INSTANCES = 500        # 全服同时对局上限(内存保护)
+MAX_LOGIN_ATTEMPTS = 3           # 单连接登录失败上限(防爆破)
+# 回合提交窗口:只接受 [已广播回合+1, +窗口] 内的回合号,
+# 防止恶意大回合号把 turn_actions 字典撑爆(内存泄漏防护)
+TURN_WINDOW = 128
+# 单回合动作负载上限(前端 Serializer.MAX_ACTION_PAYLOAD_SIZE)
+MAX_ACTION_PAYLOAD_SIZE = 65536
+MAX_OPTS_LEN = 8192              # gameOpts 序列化串长度上限
 
 
 class GservConsumer(BaseIrcConsumer):
@@ -66,6 +74,7 @@ class GservConsumer(BaseIrcConsumer):
         self.api_ok = False
         self.instance: Optional[GameInstance] = None
         self.player: Optional[GservPlayer] = None
+        self._login_attempts = 0
 
     async def on_disconnected(self, close_code):
         if self.instance and self.player:
@@ -135,6 +144,15 @@ class GservConsumer(BaseIrcConsumer):
             nick, password, allow_register=False
         )
         if not auth.ok:
+            # 防爆破:多次失败回复 104 并断开
+            self._login_attempts += 1
+            if self._login_attempts >= MAX_LOGIN_ATTEMPTS:
+                await self.send_code(
+                    codes.RPL_TOO_MANY_LOGIN_ATTEMPTS,
+                    f"{nick} :Too many login attempts",
+                )
+                await self.close()
+                return
             await self.send_code(codes.RPL_BAD_LOGIN, f"{nick} :Bad login")
             return
         self.nick = auth.account.name
@@ -150,13 +168,18 @@ class GservConsumer(BaseIrcConsumer):
             await self.send_code(codes.RPL_NOT_ENOUGH_PARAMS, f"{self.nick} :Need more params")
             return
         game_id, timestamp, opts, version, mod_hash = parts[1:6]
+        if len(game_id) > 64 or len(opts) > MAX_OPTS_LEN:
+            await self.send_code(
+                codes.RPL_INVALID_PARAMS, f"{self.nick} :Params too long"
+            )
+            return
         async with STATE.lock:
             owned = sum(
                 1
                 for inst in STATE.instances.values()
                 if inst.creator.lower() == self.nick.lower() and not inst.closed
             )
-            if owned >= MAX_INSTANCES_PER_USER:
+            if owned >= MAX_INSTANCES_PER_USER or len(STATE.instances) >= MAX_TOTAL_INSTANCES:
                 await self.send_code(
                     codes.RPL_INSTANCE_TOO_MANY, f"{self.nick} :Too many instances"
                 )
@@ -249,8 +272,8 @@ class GservConsumer(BaseIrcConsumer):
         if self.instance is None or self.player is None or len(parts) < 2:
             return
         try:
-            self.player.loaded_percent = int(float(parts[1]))
-        except ValueError:
+            self.player.loaded_percent = max(0, min(100, int(float(parts[1]))))
+        except (ValueError, OverflowError):
             return
         async with STATE.lock:
             instance = self.instance
@@ -363,10 +386,17 @@ class GservConsumer(BaseIrcConsumer):
             return
         if self.player.player_id < 0:
             return
+        # 动作负载大小限制(与前端序列化上限一致)
+        if len(payload) - 4 > MAX_ACTION_PAYLOAD_SIZE:
+            return
         (turn,) = struct.unpack_from("<I", payload, 0)
         actions = payload[4:]
         async with STATE.lock:
             instance = self.instance
+            # 回合号必须落在合法窗口内,防止恶意回合号造成内存膨胀
+            next_turn = instance.broadcast_turn + 1
+            if turn < next_turn or turn > next_turn + TURN_WINDOW:
+                return
             bucket = instance.turn_actions.setdefault(turn, {})
             bucket[self.player.player_id] = actions
             self.player.last_turn = turn
@@ -514,6 +544,9 @@ class GservConsumer(BaseIrcConsumer):
                         await self._broadcast_rate(instance)
         except asyncio.CancelledError:
             pass
+        except Exception:
+            # 后台任务异常必须显式记录,否则会被事件循环静默吞掉
+            logger.exception("对局 %s 巡检任务异常退出", instance.game_id)
 
     async def _drop_player(self, reason: str):
         """当前连接对应玩家掉线(需持有 STATE.lock)。"""
