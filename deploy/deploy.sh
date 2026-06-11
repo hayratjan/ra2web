@@ -118,7 +118,25 @@ EOF
 echo "==> servers.ini 已指向 ${SERVER_ADDR}:${PORT}"
 
 # ---------------------------------------------------------------------------
-# 7. systemd 服务
+# 7. Nginx 大文件反代(可选,支持 fully-music.exe 断点续传)
+# ---------------------------------------------------------------------------
+DAPHNE_BIND="0.0.0.0"
+DAPHNE_PORT="${PORT}"
+NGINX_VHOST_DIR="/www/server/panel/vhost/nginx"
+if command -v nginx >/dev/null 2>&1 && [ -d "${NGINX_VHOST_DIR}" ]; then
+    DAPHNE_BIND="127.0.0.1"
+    DAPHNE_PORT="$((PORT - 1))"
+    sed "s|/opt/ra2web|${APP_DIR}|g; s|8899|${PORT}|g; s|8898|${DAPHNE_PORT}|g" \
+        "${APP_DIR}/deploy/nginx/ra2web_8899.conf" \
+        > "${NGINX_VHOST_DIR}/ra2web_${PORT}.conf"
+    nginx -t && systemctl reload nginx
+    echo "==> Nginx 已接管 ${PORT} 端口大文件下载,Daphne 监听 ${DAPHNE_BIND}:${DAPHNE_PORT}"
+else
+    echo "==> 未检测到 Nginx,由 Daphne 直接监听 ${PORT}(大文件下载建议安装 Nginx)"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. systemd 服务
 # ---------------------------------------------------------------------------
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -129,7 +147,7 @@ After=network.target
 Type=simple
 WorkingDirectory=${APP_DIR}/backend
 EnvironmentFile=${ENV_FILE}
-ExecStart=${APP_DIR}/backend/venv/bin/python -m daphne -b 0.0.0.0 -p ${PORT} ra2web_backend.asgi:application
+ExecStart=${APP_DIR}/backend/venv/bin/python -m daphne -b ${DAPHNE_BIND} -p ${DAPHNE_PORT} ra2web_backend.asgi:application
 Restart=always
 RestartSec=3
 # 资源与安全限制
@@ -145,7 +163,7 @@ systemctl restart "${SERVICE_NAME}"
 echo "==> systemd 服务 ${SERVICE_NAME} 已启动"
 
 # ---------------------------------------------------------------------------
-# 8. 防火墙放行
+# 9. 防火墙放行
 # ---------------------------------------------------------------------------
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     ufw allow "${PORT}/tcp" >/dev/null && echo "==> ufw 已放行 ${PORT}/tcp"
@@ -159,7 +177,7 @@ elif command -v iptables >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. 冒烟验证
+# 10. 冒烟验证
 # ---------------------------------------------------------------------------
 sleep 2
 echo "==> 服务状态: $(systemctl is-active ${SERVICE_NAME})"
