@@ -1,1 +1,6 @@
-gameres
+# 仅忽略根目录的游戏资源目录(不要误伤 backend/apps/gameres)
+/gameres/
+# Python 后端
+__pycache__/
+*.pyc
+backend/db.sqlite3
