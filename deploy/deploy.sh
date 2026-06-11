@@ -28,7 +28,8 @@ echo "==> 部署参数: 端口=${PORT} 地址=${SERVER_ADDR} 目录=${APP_DIR}"
 # 1. 系统依赖
 # ---------------------------------------------------------------------------
 if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -q
+    # 个别第三方源签名失效不应中断部署
+    apt-get update -q || echo "==> apt 源部分更新失败,继续(不影响部署)"
     apt-get install -y -q git python3 python3-venv python3-pip curl
 elif command -v yum >/dev/null 2>&1; then
     yum install -y -q git python3 python3-pip curl
