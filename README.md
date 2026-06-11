@@ -14,5 +14,16 @@ fork该项目，命名为 你的名字.github.io，例如 ra2web.github.io
 
 [![一键部署到Vercel](https://vercel.com/button)](https://vercel.com/import/project?template=https://github.com/ra2web/ra2web.github.io)
 
+## 多语言
+
+站点默认简体中文,页面右上角可切换 简体中文 / 繁體中文 / English,
+选择会保存在浏览器本地;实现见 `lib/lang-switch.js`。
+
+## 自建联机后端
+
+`backend/` 目录提供 Python(Django)实现的完整联机后端
+(大厅、对战中继、天梯、战绩),与前端无缝对接,
+部署方法与接口说明见 [backend/README.md](backend/README.md)。
+
 
 
