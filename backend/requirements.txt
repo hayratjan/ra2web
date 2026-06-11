@@ -1,0 +1,6 @@
+# ra2web Python 后端依赖
+Django>=5.0,<6
+channels[daphne]>=4.1
+# 生产环境多进程部署时建议启用 Redis 通道层与共享状态
+# channels-redis>=4.2
+# redis>=5.0
