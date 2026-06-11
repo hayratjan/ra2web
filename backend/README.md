@@ -1,7 +1,9 @@
-# ra2web Python 后端(Django)
+# 🐍 RA2WEB Python 后端（Django）
 
-为网页红警前端(`dist/ra2web.min.js`,Chronodivide 客户端)提供完整的自建联机后端,
-与前端无缝对接,无需修改任何前端代码。
+> 📘 项目总览、部署方式与配置说明请参阅根目录 **[README.md](../README.md)**
+
+为网页红警前端（`dist/ra2web.min.js`，Chronodivide 客户端）提供完整的自建联机后端，
+与前端无缝对接，**无需修改任何前端代码**。
 
 ## 提供的服务
 
