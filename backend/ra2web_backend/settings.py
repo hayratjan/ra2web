@@ -102,8 +102,15 @@ RA2WEB = {
     "MAX_ONLINE_USERS": int(os.environ.get("RA2WEB_MAX_ONLINE_USERS", "2000")),
     # 单连接消息速率限制(条/秒),超出回复 711 并断开
     "MSG_RATE_LIMIT": int(os.environ.get("RA2WEB_MSG_RATE_LIMIT", "40")),
-    # 每日 MOTD(登录后公告),支持多行
+    # 每日 MOTD(登录后公告),支持多行;为默认(简体中文)文案
     "MOTD": os.environ.get("RA2WEB_MOTD", "欢迎来到 ra2web 自建服务器!"),
+    # 按 WOL 地区代码(apps/core/wol_locales.py)下发的多语言 MOTD,
+    # 客户端登录前通过 setlocale 上报语言,未匹配时回退到 MOTD
+    "MOTD_BY_LOCALE": {
+        2: "Welcome to the ra2web self-hosted server!",   # 英语(美国)
+        4: "Welcome to the ra2web self-hosted server!",   # 英语(英国)
+        23: "歡迎來到 ra2web 自建伺服器!",                  # 繁体中文(台湾)
+    },
     # 天梯赛季长度(天),按战绩时间自动归档
     "SEASON_DAYS": int(os.environ.get("RA2WEB_SEASON_DAYS", "60")),
     # ------------------------------------------------------------------

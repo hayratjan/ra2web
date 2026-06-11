@@ -23,8 +23,8 @@ async def recv_line(comm, timeout=3):
     return raw.rstrip("\r\n")
 
 
-async def wol_connect_and_login(name: str):
-    """模拟前端完整登录流程:cvers -> pass/nick/user -> MOTD。"""
+async def wol_connect_and_login(name: str, locale=None):
+    """模拟前端完整登录流程:cvers -> [setlocale] -> pass/nick/user -> MOTD。"""
     comm = WebsocketCommunicator(WolConsumer.as_asgi(), "/wol")
     connected, _ = await comm.connect()
     assert connected
@@ -32,6 +32,12 @@ async def wol_connect_and_login(name: str):
     reply = await recv_line(comm)
     code = int(reply.split(" ")[1])
     assert code == 700, reply
+
+    if locale is not None:
+        # 前端 connectAndLogin 在登录前上报界面语言
+        await comm.send_to(text_data=f"setlocale {locale}\r\n")
+        reply = await recv_line(comm)
+        assert int(reply.split(" ")[1]) == 310, reply
 
     b64pass = base64.b64encode(PASSWORD.encode()).decode()
     await comm.send_to(
@@ -76,6 +82,35 @@ class WolProtocolTests(TransactionTestCase):
         )
         reply = await recv_line(comm2)
         self.assertEqual(int(reply.split(" ")[1]), 378)
+        await comm2.disconnect()
+
+    async def test_locale_flow_and_localized_motd(self):
+        """登录前 setlocale 生效:MOTD 按语言下发并持久化到账号。"""
+        from channels.db import database_sync_to_async
+        from apps.accounts.models import Account
+        from apps.core import wol_locales
+
+        # 英语客户端(locale=2)应收到英文 MOTD
+        comm, motd = await wol_connect_and_login("Alice", locale=wol_locales.USA)
+        motd_text = "\n".join(motd)
+        self.assertIn("Welcome to the ra2web self-hosted server!", motd_text)
+
+        # getlocale 返回 nick`<locale>` 结构(前端按反引号拆分)
+        await comm.send_to(text_data="getlocale Alice\r\n")
+        reply = await recv_line(comm)
+        self.assertEqual(int(reply.split(" ")[1]), 309)
+        self.assertEqual(reply.split(" ")[4], f"Alice`{wol_locales.USA}`")
+        await comm.disconnect()
+
+        # 语言已持久化到账号
+        account = await database_sync_to_async(
+            Account.objects.get
+        )(name_lower="alice")
+        self.assertEqual(account.locale, wol_locales.USA)
+
+        # 简体中文客户端(locale=21)收到默认中文 MOTD
+        comm2, motd2 = await wol_connect_and_login("Bob", locale=wol_locales.CHINA)
+        self.assertIn("欢迎来到 ra2web 自建服务器!", "\n".join(motd2))
         await comm2.disconnect()
 
     async def test_ping_pong_format(self):

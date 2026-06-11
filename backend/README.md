@@ -112,6 +112,22 @@ wolKeepAliveInGame=yes
   真人段下标即锁步玩家 id(`apps/gserv/state.parse_human_players`);
 - 载入信息(`600`)按前端 `LoadInfoParser` 的 `name,status,pct,ping,lag` 五元组编码。
 
+## 多语言支持
+
+前后端配合实现完整的多语言体验:
+
+- **前端语言切换**(`lib/lang-switch.js`,已在 `index.html` 引入):
+  页面右上角提供语言选择器(简体中文/繁體中文/English),
+  默认简体中文;选择保存在 `localStorage`,
+  通过拦截 `config.ini` 与 `res/locale/*.json` 请求实现切换,
+  无需改动打包后的游戏代码;也可用 `window.ra2webLang.set("en-US")` 编程切换;
+- **语言上报**:前端登录前发送 `setlocale <地区代码>`
+  (代码表见 `apps/core/wol_locales.py`,与前端 `WolLocale` 一致),
+  后端登记到会话并持久化到账号;
+- **MOTD 多语言下发**:登录公告按上报语言从
+  `settings.RA2WEB["MOTD_BY_LOCALE"]` 选择文案,未匹配时回退默认中文 `MOTD`;
+- `getlocale` 返回 `nick`\`<locale>\` 结构,与前端解析逻辑一致。
+
 ## 在线连线优化
 
 - **速率自适应**:按全员实测 RTT 动态计算网络回合时长并通过 `802` 下发,

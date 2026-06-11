@@ -62,6 +62,8 @@ class WolConsumer(BaseIrcConsumer):
         # 登录前的暂存凭据
         self._pending_pass = ""
         self._pending_nick = ""
+        # 客户端是否已主动上报语言(登录前 setlocale)
+        self._locale_reported = False
 
     async def on_disconnected(self, close_code):
         session = self.session
@@ -237,14 +239,20 @@ class WolConsumer(BaseIrcConsumer):
                 await old.consumer.close()
                 STATE.users.pop(account.name_lower, None)
             self.session.nick = account.name
-            self.session.locale = account.locale
+            # 前端在登录前已通过 setlocale 上报界面语言;
+            # 未上报时回退到账号上次保存的语言
+            if not self._locale_reported:
+                self.session.locale = account.locale
             STATE.users[account.name_lower] = self.session
 
         await database_sync_to_async(account.touch_login)()
+        if self._locale_reported and account.locale != self.session.locale:
+            await database_sync_to_async(self._save_locale)(self.session.locale)
 
-        # MOTD(375 起始行也会被前端展示)
+        # MOTD(375 起始行也会被前端展示),按上报语言多语言下发
+        motd = self.cfg["MOTD_BY_LOCALE"].get(self.session.locale, self.cfg["MOTD"])
         await self.send_code(codes.RPL_MOTDSTART, f"{account.name} :- ra2web")
-        for motd_line in self.cfg["MOTD"].splitlines() or [""]:
+        for motd_line in motd.splitlines() or [""]:
             await self.send_code(codes.RPL_MOTD, f"{account.name} :- {motd_line}")
         await self.send_code(codes.RPL_ENDOFMOTD, f"{account.name} :- end")
 
@@ -252,13 +260,14 @@ class WolConsumer(BaseIrcConsumer):
         self.start_keepalive()
 
     async def cmd_setlocale(self, line, parts):
-        """setlocale <地区代码>"""
+        """setlocale <地区代码>(前端在登录前发送,登录时再持久化)"""
         nick = self.session.nick or "-"
         try:
             locale = int(parts[1]) if len(parts) > 1 else 0
         except ValueError:
             locale = 0
         self.session.locale = locale
+        self._locale_reported = True
         if self.session.is_logged_in():
             await database_sync_to_async(self._save_locale)(locale)
         await self.send_code(codes.RPL_SET_LOCALE, f"{nick} {nick}`{locale}`")
