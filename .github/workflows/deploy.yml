@@ -1,0 +1,49 @@
+# 推送 main 或手动触发时，SSH 到生产服务器更新代码并重启服务
+name: Deploy to Server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 通过 SSH 部署
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            APP_DIR="/opt/ra2web"
+            PORT="8899"
+            DAPHNE_PORT="8898"
+            NGINX_VHOST_DIR="/www/server/panel/vhost/nginx"
+
+            cd "${APP_DIR}"
+            git fetch origin main
+            git reset --hard origin/main
+
+            cd backend
+            ./venv/bin/pip install -q -r requirements.txt
+            set -a; . /etc/ra2web.env; set +a
+            ./venv/bin/python manage.py migrate --no-input
+
+            if command -v nginx >/dev/null 2>&1 && [ -d "${NGINX_VHOST_DIR}" ]; then
+              sed "s|/opt/ra2web|${APP_DIR}|g; s|8899|${PORT}|g; s|8898|${DAPHNE_PORT}|g" \
+                "${APP_DIR}/deploy/nginx/ra2web_8899.conf" \
+                > "${NGINX_VHOST_DIR}/ra2web_${PORT}.conf"
+              nginx -t
+              systemctl reload nginx
+            fi
+
+            systemctl restart ra2web
+            sleep 2
+            systemctl is-active ra2web
+            curl -sf -o /dev/null -w "HTTP %{http_code}\n" "http://127.0.0.1:${PORT}/"
