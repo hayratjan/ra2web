@@ -86,33 +86,13 @@ set -a; . "${ENV_FILE}"; set +a
 # ---------------------------------------------------------------------------
 cat > "${APP_DIR}/servers.ini" <<EOF
 [local]
-label="38服务器 (${SERVER_ADDR})"
+label="当前服务器 (${SERVER_ADDR}:${PORT})"
 available=yes
 gameVersion=0.65.1
 wolUrl="ws://${SERVER_ADDR}:${PORT}/wol"
 wladderUrl="http://${SERVER_ADDR}:${PORT}/ladder"
 wgameresUrl="http://${SERVER_ADDR}:${PORT}/wgameres"
 gservUrl="ws://${SERVER_ADDR}:${PORT}/gserv"
-wolKeepAliveInGame=yes
-
-[eu1]
-label="Europe (EU1)"
-available=yes
-gameVersion=0.62
-wolUrl="wss://wol-eu1.chronodivide.com:443"
-wladderUrl="https://wol-eu1.chronodivide.com/ladder"
-wgameresUrl="https://wol-eu1.chronodivide.com/wgameres"
-gservUrl="wss://gserv-eu1.chronodivide.com:443"
-wolKeepAliveInGame=yes
-
-[sea2]
-label="South-East Asia (HK)"
-available=yes
-gameVersion=0.62
-wolUrl="wss://wol-sea2.chronodivide.com:443"
-wladderUrl="https://wol-sea2.chronodivide.com/ladder"
-wgameresUrl="https://wol-sea2.chronodivide.com/wgameres"
-gservUrl="wss://gserv-sea2.chronodivide.com:443"
 wolKeepAliveInGame=yes
 EOF
 echo "==> servers.ini 已指向 ${SERVER_ADDR}:${PORT}"
