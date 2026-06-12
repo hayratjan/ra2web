@@ -7,6 +7,7 @@ ra2web 后端 Django 配置。
 - wolUrl      -> WS    WOL 聊天大厅服务(apps.wol)
 - gservUrl    -> WS    游戏中继服务(apps.gserv)
 """
+import json
 import os
 from pathlib import Path
 
@@ -131,7 +132,32 @@ RA2WEB = {
     # 匹配地图池:必须配置客户端可加载的官方地图,否则快速匹配不可用
     # 每项: {"name": 地图文件名, "title": 标题, "sizeBytes": 文件大小,
     #        "digest": 地图摘要, "official": True}
-    "QM_MAP_POOL": [],
+    # 可通过环境变量 RA2WEB_QM_MAP_POOL 覆盖(JSON 数组)
+    "QM_MAP_POOL": json.loads(os.environ["RA2WEB_QM_MAP_POOL"])
+    if os.environ.get("RA2WEB_QM_MAP_POOL")
+    else [
+        {
+            "name": "tn04t2.map",
+            "title": "[2] Tournament Map 4",
+            "sizeBytes": 74496,
+            "digest": "",
+            "official": True,
+        },
+        {
+            "name": "mp5t5.map",
+            "title": "[4] Hostile Station",
+            "sizeBytes": 102400,
+            "digest": "",
+            "official": True,
+        },
+        {
+            "name": "mp2t2.map",
+            "title": "[2] Big Rock Candy Mountain",
+            "sizeBytes": 81920,
+            "digest": "",
+            "official": True,
+        },
+    ],
     # 匹配成功后的开局倒计时(秒),与前端 10 秒等待窗口配合
     "QM_COUNTDOWN_SECONDS": 3,
     # 匹配局游戏设置(serializeOptions 各字段)

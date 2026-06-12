@@ -86,7 +86,7 @@ set -a; . "${ENV_FILE}"; set +a
 # ---------------------------------------------------------------------------
 cat > "${APP_DIR}/servers.ini" <<EOF
 [local]
-label="我的服务器 (${SERVER_ADDR})"
+label="38服务器 (${SERVER_ADDR})"
 available=yes
 gameVersion=0.65.1
 wolUrl="ws://${SERVER_ADDR}:${PORT}/wol"
