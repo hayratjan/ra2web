@@ -43,12 +43,15 @@ EOS
 
 SSH_OPTS=(-o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "${PORT}")
 
-if [ -n "${RA2WEB_SSH_PASSWORD:-}" ]; then
-  sshpass -p "${RA2WEB_SSH_PASSWORD}" ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" bash -s <<< "${REMOTE_SCRIPT}"
-elif [ -n "${RA2WEB_SSH_KEY_FILE:-}" ]; then
-  ssh -i "${RA2WEB_SSH_KEY_FILE}" "${SSH_OPTS[@]}" "${USER}@${HOST}" bash -s <<< "${REMOTE_SCRIPT}"
-else
-  ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" bash -s <<< "${REMOTE_SCRIPT}"
+# 支持 Cursor Secrets / GitHub Actions 等多种变量名
+SSH_PASSWORD="${RA2WEB_SSH_PASSWORD:-${DEPLOY_PASSWORD:-${SSH_PASSWORD:-${SERVER_PASSWORD:-}}}}"
+
+if [ -z "${SSH_PASSWORD}" ]; then
+  echo "错误: 未找到 SSH 密码环境变量。" >&2
+  echo "请在 Cursor Cloud Agent Secrets 中添加 RA2WEB_SSH_PASSWORD,然后重新启动 Agent。" >&2
+  exit 1
 fi
+
+sshpass -p "${SSH_PASSWORD}" ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" bash -s <<< "${REMOTE_SCRIPT}"
 
 echo "==> 部署完成: http://${HOST}:${NGINX_PORT}/"
